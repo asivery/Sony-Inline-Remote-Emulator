@@ -8,7 +8,7 @@
 #define SIGNAL_PIN 3
 #define SIGNAL_SINK_PIN 2
 #define OLED_ADDRESS 0x3c
-#define MCP4571_ADDRESS 0x2f
+#define MCP4561_ADDRESS 0x2f
 
 #define MARGIN 5
 #define TRACK_TITLE_START 10
@@ -26,25 +26,27 @@
 
 #define Serial SerialUSB
 
+#define SEC 1000000
+
 typedef uint16_t ui;
 typedef unsigned long int ul;
 
 UiToolkit toolkit(SCREEN_WIDTH, SCREEN_HEIGHT);
 WireFast1306 screen(&Wire, OLED_ADDRESS);
 
-SonyRemote remote(SIGNAL_PIN, SIGNAL_SINK_PIN);
-SonyRemoteButtonsMCP4561 buttonsEmu(MCP4571_ADDRESS);
+AsyncSonyRemote remote(SIGNAL_PIN, SIGNAL_SINK_PIN);
+SonyRemoteButtonsMCP4561 buttonsEmu(MCP4561_ADDRESS);
 volatile bool interrupted = false;
 
 enum class MainState{
   NONE, HOME, TESTMENU
-} state;
+} programState;
 MainState awaitingSwitch;
 ui battery;
 ui volume = 25;
 char trackTitle[64];
 char discTitle[64];
-char *currentTime;
+char *currentTime = NULL;
 
 /************************************Setup************************************/
 inline void setupScreen(){
@@ -56,7 +58,7 @@ inline void setupScreen(){
 
 inline void setupState(){
   screen.setTextColor(1);
-  state = MainState::NONE;
+  programState = MainState::NONE;
   awaitingSwitch = MainState::HOME;
   memset(trackTitle, 0, sizeof(trackTitle));
   memset(discTitle, 0, sizeof(discTitle));
@@ -69,6 +71,7 @@ inline void setupDebug(){
   pinMode(6, INPUT_PULLUP);
   pinMode(7, INPUT_PULLUP);
   pinMode(9, OUTPUT);
+  pinMode(8, OUTPUT);
   strcpy(trackTitle, "Very Long Test Track");
   strcpy(discTitle, "disc title");
   initScrollParameters();
@@ -77,14 +80,17 @@ inline void setupDebug(){
 inline void setupRemote(){
   pinMode(SIGNAL_PIN, INPUT);
   pinMode(SIGNAL_SINK_PIN, OUTPUT);
-  attachInterrupt(digitalPinToInterrupt(SIGNAL_PIN), isr, FALLING);
+  buttonsEmu.begin();
+  remote.begin();
 }
+
 
 void setup() {
   setupScreen();
   setupState();
   setupDebug();
   setupRemote();
+  buttonsEmu.enqueueButton(Button::DISPLAY_SWITCH);
 }
 
 /*******************************UI Drawing*******************************/
@@ -115,7 +121,7 @@ void redrawAll(){
 }
 
 void drawVolumeValue(){
-  if(state != MainState::HOME) return;
+  if(programState != MainState::HOME) return;
   screen.beginDelta();
   screen.setCursor(SPEAKER_WIDTH + 2, 0);
   ui width, height;
@@ -172,7 +178,7 @@ void initScrollParameters(){
 
 
 void drawTrackTitle(){
-  if(state != MainState::HOME) return;
+  if(programState != MainState::HOME) return;
   screen.beginDelta();
   screen.setCursor(SONG_WIDTH + 1 + currentTrackScroll + SCROLL_TICK_DISTANCE, TRACK_TITLE_START);
   screen.setBounds(
@@ -198,7 +204,7 @@ void drawTrackTitle(){
 }
 
 void drawDiscTitle(){
-  if(state != MainState::HOME) return;
+  if(programState != MainState::HOME) return;
   screen.beginDelta();
   screen.setCursor(DISC_WIDTH + 1 + currentDiscScroll + SCROLL_TICK_DISTANCE, DISC_TITLE_START);
 
@@ -222,8 +228,9 @@ void drawDiscTitle(){
   screen.clearBounds();
   screen.endDelta();
 }
+
 void drawCurrentTime(){
-  if(state != MainState::HOME) return;
+  if(programState != MainState::HOME || !currentTime) return;
   screen.beginDelta();
   screen.setTextSize(2);
   ui width, height;
@@ -239,93 +246,70 @@ void drawCurrentTime(){
 
 /********************************Communication********************************/
 
-volatile bool messageOngoing = false;
-volatile ul timeMessageStarted = 0;
+bool hasDiscTitle = false, hasTrackTitle = false;
+ul lastLCDUpdateTime = 0;
+ul lastChangeTime = 0;
 
-void isr(){
-  timeMessageStarted = micros();
-  messageOngoing = true;
-}
-
-inline void handleCommunication(){
-  if(messageOngoing){
-    ul delay = micros() - timeMessageStarted;
-    if(delay > 1200){
-      Serial.print("Timing error: ");
-      Serial.println(delay);
-      //messageOngoing = false;
-      //return;
-    }
-    remote.handleMessage(delay);
+uint8_t handleCommunication(EventType *typesRead = NULL){
+  EventLCDText::LCDDataType thisType;
+  uint8_t eventTypeCounter = 0;
+  while(remote.handleMessage()){
     RemoteEvent *event;
     if(remote.hasChecksumError()){
       Serial.println("Checksum error");
-      messageOngoing = false;
-      return;
+      return 0;
     }
     while(event = remote.nextEvent()){  
+      if(typesRead) typesRead[eventTypeCounter++] = event->type;
       switch(event->type){
         case EventType::LCD_TEXT:
+          thisType = event->data.lcd.type;
           switch(event->data.lcd.type){
-          case EventLCDText::LCDDataType::TIME:
-            currentTime = event->data.lcd.text;
-            drawCurrentTime();
-            break;
-          
-          case EventLCDText::LCDDataType::TRACK_TITLE:
-            ui length = strlen(event->data.lcd.text);
-            memcpy(trackTitle, event->data.lcd.text, length);
-            trackTitle[length] = 0;
-            initScrollParameters();
-            currentTrackScroll = -SCROLL_TICK_DISTANCE; //Start scrolling immediately
-            drawTrackTitle();
-            break;
+            case EventLCDText::LCDDataType::TIME:
+              currentTime = event->data.lcd.text;
+              lastLCDUpdateTime = micros();
+              drawCurrentTime();
+              break;
+            case EventLCDText::LCDDataType::TRACK_TITLE:
+              strcpy(trackTitle, event->data.lcd.text);
+              initScrollParameters();
+              currentTrackScroll = -SCROLL_TICK_DISTANCE; //Start scrolling immediately
+              drawTrackTitle();
+              hasTrackTitle = true;
+              break;
+            case EventLCDText::LCDDataType::DISC_TITLE:
+              strcpy(discTitle, event->data.lcd.text);
+              initScrollParameters();
+              currentDiscScroll = -SCROLL_TICK_DISTANCE; //Start scrolling immediately
+              drawDiscTitle();
+              hasDiscTitle = true;
+              break;
+            default:
+              SerialUSB.print("Unknown LCD: ");
+              SerialUSB.println(static_cast<uint8_t>(event->data.lcd.type));
+              break;
           }
           break;
         case EventType::VOLUME_LEVEL:
           volume = (100 * ((uint16_t) event->data.volume.level)) / 30;
           drawVolumeValue();
           break;
-        case EventType::BATTERY_LEVEL:
-          switch(event->data.battery.level){
-            case EventBatteryIndicator::Level::OFF:
-              Serial.println("OFF");
-              break;
-            case EventBatteryIndicator::Level::SINGLE_BAR_BLINKING:
-              Serial.println("SINGLE_BAR_BLINKING");
-              break;
-            case EventBatteryIndicator::Level::CHARGING:
-              Serial.println("CHARGING");
-              break;
-            case EventBatteryIndicator::Level::EMPTY_BLINKING:
-              Serial.println("EMPTY_BLINKING");
-              break;
-            case EventBatteryIndicator::Level::ONE_BAR:
-              Serial.println("ONE_BAR");
-              break;
-            case EventBatteryIndicator::Level::TWO_BARS:
-              Serial.println("TWO_BARS");
-              break;
-            case EventBatteryIndicator::Level::THREE_BARS:
-              Serial.println("THREE_BARS");
-              break;
-            case EventBatteryIndicator::Level::FOUR_BARS:
-              Serial.println("FOUR_BARS");
-              break;
-          }
-          break;
       }
     }
-    messageOngoing = false;
+    buttonsEmu.tick();
+    if(((micros() - lastLCDUpdateTime) > 2*SEC || !hasDiscTitle ||!hasTrackTitle) && (micros() - lastChangeTime) > 3*SEC){
+      buttonsEmu.sendButton(Button::DISPLAY_SWITCH);
+      lastChangeTime = micros();
+    }
   }
-  buttonsEmu.tick();
+  return eventTypeCounter;
 }
 
 /*********************************UI Updating*********************************/
 
 
 inline void doUpdates(){
-  switch(state){
+  switch(programState){
     case MainState::HOME:
       scrollTexts();
       break;
@@ -333,7 +317,7 @@ inline void doUpdates(){
 }
 
 inline void switchStates(){
-  switch(state = awaitingSwitch){
+  switch(programState = awaitingSwitch){
     case MainState::HOME:
       drawConstantUI();
       redrawAll();
@@ -354,6 +338,6 @@ void loop() {
   }else {
     doUpdates();
   }
-  screen.display(&messageOngoing);
+  screen.display();
 }
 

@@ -11,14 +11,14 @@
 #define PRESYNC_RESET_RANGE 39000, 45000 /*Was 41000*/
 #define PRESYNC_RANGE 900, 1300 /*Was 1120*/
 #define SYNC_RANGE 190, 250 /*Was 220*/
-#define DATABIT_LOW_RANGE 100, 290
+#define DATABIT_LOW_RANGE 100, 250
 
   
 #define delayus delayMicroseconds
 #define MAX_PACKETS_PER_MESSAGE 10 /*Packets are 11 bytes, 1 for checksum. There can be max. 10 1 byte packets.*/
 
 #ifdef REMOTE_DEBUG
-#define D(x) SerialUSB.print(x)
+#define D(x...) SerialUSB.print(x)
 #define DN SerialUSB.println()
 #else
 #define D
@@ -114,40 +114,26 @@ struct RemoteEvent{
   } data;
 };
 
-enum class PendingAction{
-  NONE, REMOTE_CAPABILITIES
-};
-
 class SonyRemote{
   public:
-  SonyRemote(int readPin, int writePin);
-
-  void handleMessage(ul presyncOffset = 0);
-  void waitForMessage();
+  SonyRemote();
+  ~SonyRemote();
 
   RemoteEvent* nextEvent();
   bool hasChecksumError();
 
   protected:
-  int readPin, writePin;
   // Low-level helpers:
-  void pin(bool value);
-  bool isPin();
-  void waitFor(bool state);
-  void pullFor(ul duration, bool state);
-  ul getLengthOfPulse(bool state);
-  void sendDataBit(bool data);
-  void sendDataByte(uint8_t data);
-  bool readDataBit();
-  uint8_t readDataByte(uint8_t &checksum);
+
+  virtual bool readDataBit() = 0;
+  virtual void addBitToSend(bool b) = 0;
+  virtual uint8_t readDataByte(uint8_t &checksum);
+  virtual void addByteToSend(uint8_t byte);
+  virtual void finaliseOutboundMessage();
 
   // Communication methods:
-  void resetCommunications();
-  void initialize();
-  void handleRemoteHeader();
   void handlePlayerMessage();
   uint8_t handlePlayerPacket(uint8_t type, uint8_t &sum, RemoteEvent *event);
-  void continuePreviousMessage();
 
   // Packet handling (remotepackets.cpp)
   uint8_t handleRequestRemoteCapabilitiesPacket(uint8_t &sum, RemoteEvent *event);
@@ -159,8 +145,9 @@ class SonyRemote{
   uint8_t handlePlaybackModeIndicatorPacket(uint8_t &sum, RemoteEvent *event);
   uint8_t handleEQIndicatorPacket(uint8_t &sum, RemoteEvent *event);
   uint8_t handleBatteryIndicatorPacket(uint8_t &sum, RemoteEvent *event);
+  uint8_t handleClearLCDRegisters(uint8_t &sum, RemoteEvent *event);
 
-  void continueRemoteCapabilities();
+  void prepareRemoteCapabilities(uint8_t block);
 
   RemoteEvent events[MAX_PACKETS_PER_MESSAGE]; 
   uint8_t eventsLeft = 0;
@@ -168,9 +155,51 @@ class SonyRemote{
 
   char lcdBuffer[64];
   uint8_t lcdOffset = 0;
+};
+
+class SynchronousSonyRemote : public SonyRemote{
+  public:
+  SynchronousSonyRemote(int readPin, int writePin);
+  virtual ~SynchronousSonyRemote();
+  void handleMessage(ul presyncOffset = 0);
+  void waitForMessage();
+
+  protected:
+  uint8_t bitsToSend;
+  uint8_t outboundBuffer[11];
+  int readPin, writePin;
+  void pin(bool value);
+  bool isPin();
+  void waitFor(bool state);
+  void pullFor(ul duration, bool state);
+  ul getLengthOfPulse(bool state);
+  void sendDataBit(bool data);
+  void sendDataByte(uint8_t data);
+  void continuePreviousMessage();
+  void handleRemoteHeader();
+  void resetCommunications();
+  void initialize();
+
+
+  virtual bool readDataBit();
+  virtual void addBitToSend(bool b);
+
+
   bool hasDataToSend = false;
   bool isReadyForText = false;
   bool isInitialized = false;
-  PendingAction actionPendingInNextPacket = PendingAction::NONE;
-  uint8_t nextActionState[16]; //Temp
+
+};
+
+class AsyncSonyRemote : public SonyRemote{
+
+  public:
+  AsyncSonyRemote(int readPin, int writePin);
+  bool handleMessage();
+  void begin();
+
+  protected:
+  virtual bool readDataBit();
+  virtual void addBitToSend(bool b);
+  virtual void finaliseOutboundMessage();
 };

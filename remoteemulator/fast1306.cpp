@@ -403,6 +403,7 @@ void WireFast1306::beginTransmission(uint8_t cdc){
   wire->beginTransmission(addr);
   wire->write(cdc);
 }
+
 void WireFast1306::endTransmission(){
   existing = false;
   wire->endTransmission();

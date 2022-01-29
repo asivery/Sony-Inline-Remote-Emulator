@@ -5,9 +5,10 @@
 #define WIPER_ADDR 0
 #define CIRCUIT_ADDR 4
 
-#define PRESS_TIME 100000
+#define PRESS_TIME 250000
 
 #define MAX_RESISTANCE 50000
+#define QUEUE_LENGTH 32
 
 enum class Button{
   PLAY = 200,
@@ -28,14 +29,20 @@ class SonyRemoteButtons{
   public:
   virtual ~SonyRemoteButtons();
   void sendButton(Button button);
+  void enqueueButton(Button button);
   void tick();
+  void begin();
+  bool isDepressed();
 
   protected:
   virtual void enableAndSetResistance(uint16_t resistance) = 0;
   virtual void disable() = 0;
 
   private:
-  bool enabled;
+  Button queue[QUEUE_LENGTH];
+  uint8_t queueOffset = 0;
+  bool enabled = false;
+  bool afterPressDelay = false;
   unsigned long int microsEnabled;
 };
 

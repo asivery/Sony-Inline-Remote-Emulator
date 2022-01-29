@@ -2,9 +2,8 @@
 
 uint8_t SonyRemote::handleRequestRemoteCapabilitiesPacket(uint8_t &sum, RemoteEvent *event){
   uint8_t block = readDataByte(sum);
-  actionPendingInNextPacket = PendingAction::REMOTE_CAPABILITIES;
-  nextActionState[0] = block;
   event->type = EventType::NONE;
+  prepareRemoteCapabilities(block);
   return 1;
 }
 
@@ -40,19 +39,44 @@ uint8_t SonyRemote::handleDisplayTextPacket(uint8_t &sum, RemoteEvent *event){
   }
   if(segmentType == 0x01){ //Final segment
     lcdBuffer[lcdOffset] = 0;
-    lcdOffset = 0;
 
     uint8_t lcdType = *lcdBuffer;
     switch(lcdType){
-    case 0x20:
-      event->data.lcd.type = EventLCDText::LCDDataType::TIME;
-      break;
-    case 0x14:
-      event->data.lcd.type = EventLCDText::LCDDataType::TRACK_TITLE;
-      break;
-    default:
-      event->data.lcd.type = EventLCDText::LCDDataType::UNKNOWN;
+      case '0':
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+      case 0x20:
+        event->data.lcd.type = EventLCDText::LCDDataType::TIME;
+        break;
+      case 0x14:
+        event->data.lcd.type = EventLCDText::LCDDataType::TRACK_TITLE;
+        break;
+      case 0x04:
+        event->data.lcd.type = EventLCDText::LCDDataType::DISC_TITLE;
+        break;
+      default:
+        event->data.lcd.type = EventLCDText::LCDDataType::UNKNOWN;
     }
+
+    SerialUSB.println("LCD DATA: ");
+    for(uint8_t i = 0; i<lcdOffset; i++){
+      if(lcdBuffer[i] < 0x20){
+        SerialUSB.print("[");
+        if(lcdBuffer[i] <= 0xf) SerialUSB.print("0");
+        SerialUSB.print(lcdBuffer[i], HEX);
+        SerialUSB.print("]");
+      }else SerialUSB.print(lcdBuffer[i]);
+    }
+    SerialUSB.print("\nTYPE: ");
+    SerialUSB.println(static_cast<int>(event->data.lcd.type));
+    lcdOffset = 0;
     event->type = EventType::LCD_TEXT;
     event->data.lcd.text = lcdBuffer + 1; // Skip type
   }else{
@@ -99,55 +123,50 @@ uint8_t SonyRemote::handleBatteryIndicatorPacket(uint8_t &sum, RemoteEvent *even
   return 1;
 }
 
-void SonyRemote::continueRemoteCapabilities(){
-  if(nextActionState[0] != 0x01){
+uint8_t SonyRemote::handleClearLCDRegisters(uint8_t &sum, RemoteEvent *event){
+  event->type = EventType::NONE;
+  //lcdOffset = 0;
+  return 0;
+}
+
+void SonyRemote::prepareRemoteCapabilities(uint8_t block){
+  if(block != 0x01){
     D("Error unknown capabilitiy parameter: ");
-    D(nextActionState[0]);
+    D(block);
     DN;
     return;
   }
-  readDataBit(); // Player
   
   uint8_t sum = 0xc0; //Packet CAPABILITIES
-  sendDataByte(0xc0); //Remote
-  readDataBit(); //Player
+  addByteToSend(0xc0); //Remote
   
   sum ^= 0x01; //block
-  sendDataByte(0x01);
-  readDataBit();
+  addByteToSend(0x01);
 
   sum ^= 0xff; //0x09; //chars on screen
-  sendDataByte(0xff);
-  readDataBit();
+  addByteToSend(0xff);
 
   sum ^= 0x00; //unk
-  sendDataByte(0x00);
-  readDataBit();
+  addByteToSend(0x00);
 
   sum ^= 0x00; //unk
-  sendDataByte(0x00);
-  readDataBit();
+  addByteToSend(0x00);
 
   sum ^= 0x20;//0x10; //unk
-  sendDataByte(0x20);
-  readDataBit();
+  addByteToSend(0x20);
 
   sum ^= 0x0C; //12px tall
-  sendDataByte(0x0C);
-  readDataBit();
+  addByteToSend(0x0C);
 
   sum ^= 0x80; //128px wide
-  sendDataByte(0x80);
-  readDataBit();
+  addByteToSend(0x80);
 
   sum ^= 0x20; //charset kanji?
-  sendDataByte(0x20);
-  readDataBit();
+  addByteToSend(0x20);
 
   sum ^= 0x10; //unk
-  sendDataByte(0x10);
-  readDataBit();
+  addByteToSend(0x10);
 
-  sendDataByte(sum);
+  addByteToSend(sum);
 }
 
