@@ -43,6 +43,8 @@ bool SonyRemoteButtons::isDepressed(){ return enabled || afterPressDelay; }
 
 SonyRemoteButtons::~SonyRemoteButtons(){}
 
+void SonyRemoteButtons::clearQueue(){ queueOffset = 0; }
+
 SonyRemoteButtonsMCP4561::SonyRemoteButtonsMCP4561(uint8_t addr): digitalPot(addr){  }
 
 void SonyRemoteButtonsMCP4561::disable(){

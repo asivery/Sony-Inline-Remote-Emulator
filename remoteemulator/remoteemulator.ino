@@ -1,5 +1,6 @@
-#include "fast1306.h"
 #include <Wire.h>
+
+#include "fast1306.h"
 #include "uitools.h"
 #include "bitmaps.h"
 #include "sonyremote.h"
@@ -7,6 +8,10 @@
 
 #define SIGNAL_PIN 3
 #define SIGNAL_SINK_PIN 2
+
+#define UP_PIN 7
+#define DOWN_PIN 6
+
 #define OLED_ADDRESS 0x3c
 #define MCP4561_ADDRESS 0x2f
 
@@ -47,6 +52,7 @@ ui volume = 25;
 char trackTitle[64];
 char discTitle[64];
 char *currentTime = NULL;
+int currentTrack = 0;
 
 /************************************Setup************************************/
 inline void setupScreen(){
@@ -67,9 +73,6 @@ inline void setupState(){
 inline void setupDebug(){
   Serial.begin(9600);
   Serial.println("Hello");
-  pinMode(5, INPUT_PULLUP);
-  pinMode(6, INPUT_PULLUP);
-  pinMode(7, INPUT_PULLUP);
   pinMode(9, OUTPUT);
   pinMode(8, OUTPUT);
   strcpy(trackTitle, "Very Long Test Track");
@@ -82,10 +85,17 @@ inline void setupRemote(){
   pinMode(SIGNAL_SINK_PIN, OUTPUT);
   buttonsEmu.begin();
   remote.begin();
+
+  pinMode(UP_PIN, INPUT_PULLUP);
+  pinMode(DOWN_PIN, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(UP_PIN), pinUpISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(DOWN_PIN), pinDownISR, FALLING);
 }
 
 
 void setup() {
+  NVIC_SetPriority(SysTick_IRQn, 0);
   setupScreen();
   setupState();
   setupDebug();
@@ -235,23 +245,30 @@ void drawCurrentTime(){
   screen.setTextSize(2);
   ui width, height;
   toolkit.getTextSize(currentTime, &width, &height);
-  screen.setBounds((SCREEN_WIDTH - width) / 2, SCREEN_HEIGHT - TRACK_TITLE_HEIGHT - 6, SCREEN_WIDTH, SCREEN_HEIGHT);
-  screen.setCursor((SCREEN_WIDTH - width) / 2, TIME_START);
-  screen.fillRect((SCREEN_WIDTH - width) / 2, TIME_START, width, height, 0);
+  screen.setBounds(0, SCREEN_HEIGHT - TRACK_TITLE_HEIGHT - 6, SCREEN_WIDTH, SCREEN_HEIGHT);
+  screen.setCursor((SCREEN_WIDTH - width), TIME_START);
+  screen.fillRect(0, TIME_START, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
   screen.print(currentTime);
-  screen.setTextSize(1);
   screen.clearBounds();
+
+  char track[4];
+  sprintf(track, "%03x", currentTrack);
+  toolkit.getTextSize(track, &width, &height);
+  screen.setCursor(0, TIME_START);
+  screen.print(track);
   screen.endDelta();
+
+  screen.setTextSize(1);
 }
 
 /********************************Communication********************************/
+volatile bool timeSignalPromised = false;
 
 bool hasDiscTitle = false, hasTrackTitle = false;
 ul lastLCDUpdateTime = 0;
 ul lastChangeTime = 0;
 
 uint8_t handleCommunication(EventType *typesRead = NULL){
-  EventLCDText::LCDDataType thisType;
   uint8_t eventTypeCounter = 0;
   while(remote.handleMessage()){
     RemoteEvent *event;
@@ -263,11 +280,11 @@ uint8_t handleCommunication(EventType *typesRead = NULL){
       if(typesRead) typesRead[eventTypeCounter++] = event->type;
       switch(event->type){
         case EventType::LCD_TEXT:
-          thisType = event->data.lcd.type;
           switch(event->data.lcd.type){
             case EventLCDText::LCDDataType::TIME:
               currentTime = event->data.lcd.text;
               lastLCDUpdateTime = micros();
+              timeSignalPromised = false;
               drawCurrentTime();
               break;
             case EventLCDText::LCDDataType::TRACK_TITLE:
@@ -294,10 +311,22 @@ uint8_t handleCommunication(EventType *typesRead = NULL){
           volume = (100 * ((uint16_t) event->data.volume.level)) / 30;
           drawVolumeValue();
           break;
+        case EventType::TRACK_NUMBER:
+          Serial.print("Track: ");
+          Serial.println(event->data.trackNumber.number);
+          if((micros() - lastLCDUpdateTime) < 500000) {
+            currentTrack = event->data.trackNumber.number;
+            drawCurrentTime();
+          }
+          break;
       }
     }
     buttonsEmu.tick();
-    if(((micros() - lastLCDUpdateTime) > 2*SEC || !hasDiscTitle ||!hasTrackTitle) && (micros() - lastChangeTime) > 3*SEC){
+    if(timeSignalPromised && (micros() - lastLCDUpdateTime) > 30*SEC){
+      // Something is wrong - track switched when in alternative DISPLAY?
+      timeSignalPromised = false; // unlock - force switch the display.
+    }
+    if(((micros() - lastLCDUpdateTime) > 2*SEC || !hasDiscTitle ||!hasTrackTitle) && (micros() - lastChangeTime) > 3*SEC && !timeSignalPromised){
       buttonsEmu.sendButton(Button::DISPLAY_SWITCH);
       lastChangeTime = micros();
     }
@@ -307,6 +336,29 @@ uint8_t handleCommunication(EventType *typesRead = NULL){
 
 /*********************************UI Updating*********************************/
 
+void pinDownISR(){
+  Serial.println("DOWN");
+  switch(programState){
+    case MainState::HOME:
+      buttonsEmu.clearQueue();
+      buttonsEmu.enqueueButton(Button::NEXT);
+      timeSignalPromised = true;
+      lastLCDUpdateTime = micros(); //Trigger track number get
+      break;
+  }
+}
+
+void pinUpISR(){
+  Serial.println("UP");
+  switch(programState){
+    case MainState::HOME:
+      buttonsEmu.clearQueue();
+      buttonsEmu.enqueueButton(Button::BACK);
+      timeSignalPromised = true;
+      lastLCDUpdateTime = micros(); //Trigger track number get
+      break;
+  }
+}
 
 inline void doUpdates(){
   switch(programState){

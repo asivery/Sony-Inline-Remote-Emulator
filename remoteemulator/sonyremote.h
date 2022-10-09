@@ -1,6 +1,6 @@
 #pragma once
 
-#define REMOTE_DEBUG
+//#define REMOTE_DEBUG
 //#define PRECISE_PRESYNC
 
 #include <stdint.h>

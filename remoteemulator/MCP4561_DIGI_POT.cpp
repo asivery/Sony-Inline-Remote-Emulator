@@ -47,10 +47,10 @@
 
 #define MCP4561_TCON_GCEN_BIT          ((uint16_t)0x0100)
 
-#define MCP4561_CMD_BYTE_WRITE_DATA    ((uint8_t) B00000000)
-#define MCP4561_CMD_BYTE_INCREMENT     ((uint8_t) B00000100)
-#define MCP4561_CMD_BYTE_DECREMENT     ((uint8_t) B00001000)
-#define MCP4561_CMD_BYTE_READ_DATA     ((uint8_t) B00001100)
+#define MCP4561_CMD_BYTE_WRITE_DATA    ((uint8_t) 0b00000000)
+#define MCP4561_CMD_BYTE_INCREMENT     ((uint8_t) 0b00000100)
+#define MCP4561_CMD_BYTE_DECREMENT     ((uint8_t) 0b00001000)
+#define MCP4561_CMD_BYTE_READ_DATA     ((uint8_t) 0b00001100)
 
 
 #define MCP4561_SET_BIT(p,whichBit)    ((p) |=  (1    << (whichBit)))

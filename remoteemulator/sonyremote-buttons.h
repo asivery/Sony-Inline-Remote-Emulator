@@ -30,6 +30,7 @@ class SonyRemoteButtons{
   virtual ~SonyRemoteButtons();
   void sendButton(Button button);
   void enqueueButton(Button button);
+  void clearQueue();
   void tick();
   void begin();
   bool isDepressed();

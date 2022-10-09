@@ -320,7 +320,6 @@ void Fast1306Base::display(){
 }
 
 void Fast1306Base::display(volatile bool *interrupt){
-  ul drawingStart = micros();
   while(!*interrupt && (deltaMetadataFILOOffset > 0 || interruptedDrawing)){
     if(!interruptedDrawing){
       //Ok, new delta.

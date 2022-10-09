@@ -6,7 +6,7 @@ namespace asr{
   volatile bool isInitialized = true;
 
   volatile bool awaitingNextMessage = true;
-  volatile ul bitStartTime;
+  volatile unsigned long long int bitStartTime;
 
   volatile uint8_t messageBuffer[11];
   volatile uint8_t messageBufferOffset;
@@ -56,18 +56,9 @@ namespace asr{
     }
     // Rising - End of bit
     
-    unsigned long int duration = micros() - bitStartTime;
-    if(duration > 1000000L){
-      // Jitter? - unknown condition really...
-      return;
-    }
-
-    digitalWrite(9, state == TransmitState::IN_REMOTE_HEADER); //DEBUG
-    digitalWrite(8, LOW); //DEBUG
-
-    if(inRange(PRESYNC_RANGE, duration)) {
+    unsigned long long int duration = micros() - bitStartTime;
+    if(inRange(duration, PRESYNC_RANGE)) {
       state = TransmitState::BEFORE_SYNC;
-      digitalWrite(8, HIGH);
       return;
     }
     switch(state){
@@ -119,7 +110,6 @@ namespace asr{
           bool cedeBus = playerHeaderFlags & (1 << 4);
           messageBufferOffset = 0;
           if(hasData && !cedeBus){
-            memset((void*) messageBuffer, 0, 11);
             state = TransmitState::PLAYER_SENDING;
             break;
           }else if(cedeBus && hasMessageToSend){
@@ -159,15 +149,16 @@ namespace asr{
           #endif
           if(completeMessageOffset < 10) {
             uint8_t bufferOffset = 11 * completeMessageOffset++;
-            for(uint8_t i = 0; i<11; i++) completeMessageBuffer[bufferOffset + i] = messageBuffer[i];          
+            for(uint8_t i = 0; i<11; i++) {
+              completeMessageBuffer[bufferOffset + i] = messageBuffer[i];
+              messageBuffer[i] = 0;
+            }
           }else
-            D("Error - queue overflow!");
-            DN;
+            D("Error - queue overflow!\n");
           resetComm();
         }
         break;
     }
-    digitalWrite(9, state == TransmitState::IN_REMOTE_HEADER);
   }
   uint8_t readingCursor = 0;
   uint8_t writingCursor = 0;
@@ -202,12 +193,15 @@ void AsyncSonyRemote::finaliseOutboundMessage(){
 bool AsyncSonyRemote::handleMessage(){
   if(completeMessageOffset){
     readingCursor = 0;
-    SerialUSB.println("Handling: ");
+    #ifdef REMOTE_DEBUG
+    D("Handling: \n");
     for(int i = 0; i<11; i++){
-      SerialUSB.print(completeMessageBuffer[i], HEX);
-      SerialUSB.print(" ");
+      D(completeMessageBuffer[i], HEX);
+      D(" ");
     }
-    SerialUSB.println();
+    DN;
+    #endif
+
     handlePlayerMessage();
 
     noInterrupts();
