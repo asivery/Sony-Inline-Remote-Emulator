@@ -35,7 +35,10 @@ namespace asr{
     return !inRange(DATABIT_LOW_RANGE, time);
   }
 
-  inline void resetComm(){
+  inline void resetComm(const char *why){
+    D("RC ");
+    D(why);
+    DN;
     playerHeaderFlags = 0;
     state = TransmitState::AWAITING_MESSAGE;
     messageBufferOffset = 0;
@@ -57,14 +60,13 @@ namespace asr{
     // Rising - End of bit
     
     unsigned long long int duration = micros() - bitStartTime;
-    if(inRange(duration, PRESYNC_RANGE)) {
-      state = TransmitState::BEFORE_SYNC;
-      return;
-    }
     switch(state){
       case TransmitState::AWAITING_MESSAGE:
-        if(inRange(PRESYNC_RANGE, duration)) state = TransmitState::BEFORE_SYNC;
-        else resetComm();
+        if(inRange(PRESYNC_RANGE, duration)) {
+          state = TransmitState::BEFORE_SYNC;
+        } else {
+          resetComm("PRESYNC");
+        }
         break;
       case TransmitState::BEFORE_SYNC:
         if(inRange(SYNC_RANGE, duration)) {
@@ -73,7 +75,7 @@ namespace asr{
           // fall through
         }
         else{ 
-          resetComm(); 
+          resetComm("SYNC");
           break;
         }
       case TransmitState::IN_REMOTE_HEADER:
@@ -126,7 +128,7 @@ namespace asr{
         }else{
           hasMessageToSend = false;
           memset((void*) outboundBuffer, 0, 11);
-          resetComm();
+          resetComm("RS");
         }
         break;
       case TransmitState::PLAYER_SENDING:
@@ -155,7 +157,7 @@ namespace asr{
             }
           }else
             D("Error - queue overflow!\n");
-          resetComm();
+          resetComm("OK");
         }
         break;
     }

@@ -9,7 +9,7 @@
 /*************************TIMINGS********************/
 #define DATA_DURATION 210 /*us*/
 #define PRESYNC_RESET_RANGE 39000, 45000 /*Was 41000*/
-#define PRESYNC_RANGE 900, 1300 /*Was 1120*/
+#define PRESYNC_RANGE 900, 1600 /*Was 1120*/
 #define SYNC_RANGE 190, 250 /*Was 220*/
 #define DATABIT_LOW_RANGE 100, 250
 
@@ -203,3 +203,5 @@ class AsyncSonyRemote : public SonyRemote{
   virtual void addBitToSend(bool b);
   virtual void finaliseOutboundMessage();
 };
+
+int repr(char* buffer, int bufferLength, RemoteEvent* event);

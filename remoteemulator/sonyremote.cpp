@@ -94,8 +94,12 @@ inline uint8_t SonyRemote::handlePlayerPacket(uint8_t type, uint8_t &sum, Remote
 
 bool SonyRemote::hasChecksumError(){ return checksumError; }
 RemoteEvent* SonyRemote::nextEvent(){
-  if(eventsLeft > 0) return &events[eventsLeft-- -1];
-  else return NULL;
+  noInterrupts();
+  RemoteEvent *evt;
+  if(eventsLeft > 0) evt = &events[eventsLeft-- -1];
+  else evt = NULL;
+  interrupts();
+  return evt;
 }
 
 
@@ -272,3 +276,49 @@ void SynchronousSonyRemote::waitForMessage(){
   waitFor(LOW);
 }
 
+#define REPR_HELPER(...)  l = snprintf(buffer, bufferLength, __VA_ARGS__);  \
+                          buffer += l;                                      \
+                          bufferLength -= l
+int repr(char *buffer, int bufferLength, RemoteEvent *evt){
+  char *bufferStart = buffer;
+
+  int l;
+  REPR_HELPER("E%02x: ", evt->type);
+  switch(evt->type){
+    case EventType::NONE:
+      REPR_HELPER("NONE");
+      break;
+    case EventType::LCD_TEXT:
+      REPR_HELPER("Text: %s", evt->data.lcd.text);
+      break;
+    case EventType::TRACK_NUMBER:
+      REPR_HELPER("Trk: %x [%d]", evt->data.trackNumber.number, evt->data.trackNumber.indicatorShown);
+      break;
+    case EventType::VOLUME_LEVEL:
+      REPR_HELPER("Vol: %d", evt->data.volume.level);
+      break;
+    case EventType::BATTERY_LEVEL:
+      REPR_HELPER("Batt: %d", evt->data.battery.level);
+      break;
+    case EventType::ALARM_INDICATOR:
+      REPR_HELPER("Alarm: %d", evt->data.alarm.enabled);
+      break;
+    case EventType::RECORD_INDICATOR:
+      REPR_HELPER("Rec: %d", evt->data.record.enabled);
+      break;
+    case EventType::EQ_INDICATOR:
+      REPR_HELPER("Eq: %d", evt->data.eq.eq);
+      break;
+    case EventType::PLAYBACK_MODE:
+      REPR_HELPER("Pb: %d", evt->data.playbackMode.mode);
+      break;
+    case EventType::NOT_IMPLEMENTED:
+      REPR_HELPER("NIMPL");
+      break;
+    default:
+      REPR_HELPER("NO_REPR!");
+      break;
+  }
+  return buffer - bufferStart;
+}
+#undef REPR_HELPER

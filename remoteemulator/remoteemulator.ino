@@ -59,6 +59,7 @@ inline void setupScreen(){
   Wire.begin();
   Wire.setClock(400000L);
   screen.begin();
+  screen.setTextWrap(false);
   toolkit.begin(&screen);
 }
 
@@ -151,8 +152,8 @@ void scrollTexts(){
     }
     if(trackTitleScrolledFully){
       --trackTitleScrolledFully;
-      if(currentTrackScroll < -SCROLL_TICK_DISTANCE) currentTrackScroll = TRACK_TITLE_MAX_X;
     }else{
+      if(currentTrackScroll < -(trackTitleWidth + SONG_WIDTH + TRACK_TITLE_START)) currentTrackScroll = TRACK_TITLE_MAX_X;
       currentTrackScroll -= SCROLL_TICK_DISTANCE;
       drawTrackTitle();
       return;
@@ -326,7 +327,8 @@ uint8_t handleCommunication(EventType *typesRead = NULL){
       // Something is wrong - track switched when in alternative DISPLAY?
       timeSignalPromised = false; // unlock - force switch the display.
     }
-    if(((micros() - lastLCDUpdateTime) > 2*SEC || !hasDiscTitle ||!hasTrackTitle) && (micros() - lastChangeTime) > 3*SEC && !timeSignalPromised){
+    // TODO: Rewrite this:
+    if(((micros() - lastLCDUpdateTime) > 2*SEC || !hasDiscTitle ||!hasTrackTitle) && (micros() - lastChangeTime) > 2*SEC && !timeSignalPromised){
       buttonsEmu.sendButton(Button::DISPLAY_SWITCH);
       lastChangeTime = micros();
     }

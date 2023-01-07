@@ -5,7 +5,7 @@
 #define WIPER_ADDR 0
 #define CIRCUIT_ADDR 4
 
-#define PRESS_TIME 250000
+#define PRESS_TIME 100000
 
 #define MAX_RESISTANCE 50000
 #define QUEUE_LENGTH 32
